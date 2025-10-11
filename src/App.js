@@ -1,29 +1,74 @@
-import React, { useState } from 'react';
-import { User, Calendar, CheckCircle, Plus } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { User, Calendar, CheckCircle, Plus, Loader } from 'lucide-react';
+import { initializeApp } from 'firebase/app';
+import { getFirestore, collection, addDoc, onSnapshot, deleteDoc, doc, query, orderBy } from 'firebase/firestore';
+
+// Firebase config using environment variables
+const firebaseConfig = {
+  apiKey: process.env.REACT_APP_API_KEY,
+  authDomain: process.env.REACT_APP_AUTH_DOMAIN,
+  projectId: process.env.REACT_APP_PROJECT_ID,
+  storageBucket: process.env.REACT_APP_STORAGE_BUCKET,
+  messagingSenderId: process.env.REACT_APP_MESSAGING_SENDER_ID,
+  appId: process.env.REACT_APP_APP_ID
+};
+
+// Initialize Firebase
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
 
 export default function CarpoolScheduler() {
   const [parentName, setParentName] = useState('');
   const [selections, setSelections] = useState([]);
   const [currentDay, setCurrentDay] = useState('');
   const [currentSlots, setCurrentSlots] = useState({ dropOff: false, pickUp: false });
+  const [loading, setLoading] = useState(true);
 
   const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 
-  const handleAddSelection = () => {
+  // Listen to real-time updates from Firebase
+  useEffect(() => {
+    const q = query(collection(db, 'carpoolSelections'), orderBy('timestamp', 'desc'));
+    
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const data = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      setSelections(data);
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  const handleAddSelection = async () => {
     if (parentName.trim() && currentDay && (currentSlots.dropOff || currentSlots.pickUp)) {
-      setSelections([...selections, {
-        parent: parentName.trim(),
-        day: currentDay,
-        dropOff: currentSlots.dropOff,
-        pickUp: currentSlots.pickUp
-      }]);
-      setCurrentDay('');
-      setCurrentSlots({ dropOff: false, pickUp: false });
+      try {
+        await addDoc(collection(db, 'carpoolSelections'), {
+          parent: parentName.trim(),
+          day: currentDay,
+          dropOff: currentSlots.dropOff,
+          pickUp: currentSlots.pickUp,
+          timestamp: new Date()
+        });
+        
+        setCurrentDay('');
+        setCurrentSlots({ dropOff: false, pickUp: false });
+      } catch (error) {
+        console.error('Error adding selection:', error);
+        alert('Failed to add selection. Please try again.');
+      }
     }
   };
 
-  const handleRemoveSelection = (index) => {
-    setSelections(selections.filter((_, i) => i !== index));
+  const handleRemoveSelection = async (id) => {
+    try {
+      await deleteDoc(doc(db, 'carpoolSelections', id));
+    } catch (error) {
+      console.error('Error removing selection:', error);
+      alert('Failed to remove selection. Please try again.');
+    }
   };
 
   const generateSchedule = () => {
@@ -45,6 +90,18 @@ export default function CarpoolScheduler() {
   };
 
   const schedule = generateSchedule();
+  const mySelections = selections.filter(sel => sel.parent === parentName.trim());
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
+        <div className="flex items-center gap-2 text-indigo-600">
+          <Loader className="animate-spin" size={24} />
+          <span className="text-lg font-medium">Loading schedule...</span>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
@@ -128,17 +185,17 @@ export default function CarpoolScheduler() {
             </button>
           </div>
 
-          {selections.length > 0 && (
+          {mySelections.length > 0 && (
             <div className="mt-6">
               <h3 className="text-sm font-semibold text-gray-700 mb-3">Your Selections:</h3>
               <div className="space-y-2">
-                {selections.map((sel, idx) => (
-                  <div key={idx} className="flex items-center justify-between bg-indigo-50 p-3 rounded-lg border border-indigo-100">
+                {mySelections.map((sel) => (
+                  <div key={sel.id} className="flex items-center justify-between bg-indigo-50 p-3 rounded-lg border border-indigo-100">
                     <span className="text-sm text-gray-700">
                       <strong>{sel.day}</strong>: {sel.dropOff && 'Drop Off'}{sel.dropOff && sel.pickUp && ' & '}{sel.pickUp && 'Pick Up'}
                     </span>
                     <button
-                      onClick={() => handleRemoveSelection(idx)}
+                      onClick={() => handleRemoveSelection(sel.id)}
                       className="text-red-600 hover:text-red-800 text-sm font-medium px-2"
                     >
                       Remove
@@ -154,7 +211,7 @@ export default function CarpoolScheduler() {
         <div className="bg-white rounded-lg shadow-lg p-6">
           <div className="flex items-center gap-2 mb-4">
             <Calendar className="text-indigo-600" size={24} />
-            <h2 className="text-lg font-semibold text-gray-700">Section 3: Weekly Schedule</h2>
+            <h2 className="text-lg font-semibold text-gray-700">Section 3: Weekly Schedule (All Parents)</h2>
           </div>
           
           <div className="overflow-x-auto">
