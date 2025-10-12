@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { User, Calendar, CheckCircle, Plus, Loader } from 'lucide-react';
+import { User, Calendar, CheckCircle, Plus, Loader, Trash2, Edit2, X } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
-import { getFirestore, collection, addDoc, onSnapshot, deleteDoc, doc, query, orderBy } from 'firebase/firestore';
+import { getFirestore, collection, addDoc, onSnapshot, deleteDoc, doc, query, orderBy, updateDoc, writeBatch } from 'firebase/firestore';
 
 // Firebase config using environment variables
 const firebaseConfig = {
@@ -17,20 +17,26 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
+const PARENT_NAMES = ['Claudia & JH', 'Iwona', 'Patricia & Lucasz'];
+
 export default function CarpoolScheduler() {
-  const [parentName, setParentName] = useState('');
+  const [selectedParent, setSelectedParent] = useState('');
   const [selections, setSelections] = useState([]);
-  const [currentDay, setCurrentDay] = useState('');
-  const [currentSlots, setCurrentSlots] = useState({ dropOff: false, pickUp: false });
+  const [holidays, setHolidays] = useState([]);
+  const [selectedDays, setSelectedDays] = useState([]);
+  const [dropOff, setDropOff] = useState(false);
+  const [pickUp, setPickUp] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [editingId, setEditingId] = useState(null);
 
   const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 
   // Listen to real-time updates from Firebase
   useEffect(() => {
-    const q = query(collection(db, 'carpoolSelections'), orderBy('timestamp', 'desc'));
+    const selectionsQuery = query(collection(db, 'carpoolSelections'), orderBy('timestamp', 'desc'));
+    const holidaysQuery = query(collection(db, 'schoolHolidays'));
     
-    const unsubscribe = onSnapshot(q, (snapshot) => {
+    const unsubscribeSelections = onSnapshot(selectionsQuery, (snapshot) => {
       const data = snapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
@@ -39,25 +45,50 @@ export default function CarpoolScheduler() {
       setLoading(false);
     });
 
-    return () => unsubscribe();
+    const unsubscribeHolidays = onSnapshot(holidaysQuery, (snapshot) => {
+      const data = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      setHolidays(data);
+    });
+
+    return () => {
+      unsubscribeSelections();
+      unsubscribeHolidays();
+    };
   }, []);
 
-  const handleAddSelection = async () => {
-    if (parentName.trim() && currentDay && (currentSlots.dropOff || currentSlots.pickUp)) {
+  const toggleDay = (day) => {
+    setSelectedDays(prev => 
+      prev.includes(day) ? prev.filter(d => d !== day) : [...prev, day]
+    );
+  };
+
+  const handleAddSelections = async () => {
+    if (selectedParent && selectedDays.length > 0 && (dropOff || pickUp)) {
       try {
-        await addDoc(collection(db, 'carpoolSelections'), {
-          parent: parentName.trim(),
-          day: currentDay,
-          dropOff: currentSlots.dropOff,
-          pickUp: currentSlots.pickUp,
-          timestamp: new Date()
+        const batch = writeBatch(db);
+        
+        selectedDays.forEach(day => {
+          const docRef = doc(collection(db, 'carpoolSelections'));
+          batch.set(docRef, {
+            parent: selectedParent,
+            day: day,
+            dropOff: dropOff,
+            pickUp: pickUp,
+            timestamp: new Date()
+          });
         });
         
-        setCurrentDay('');
-        setCurrentSlots({ dropOff: false, pickUp: false });
+        await batch.commit();
+        
+        setSelectedDays([]);
+        setDropOff(false);
+        setPickUp(false);
       } catch (error) {
-        console.error('Error adding selection:', error);
-        alert('Failed to add selection. Please try again.');
+        console.error('Error adding selections:', error);
+        alert('Failed to add selections. Please try again.');
       }
     }
   };
@@ -71,10 +102,45 @@ export default function CarpoolScheduler() {
     }
   };
 
+  const handleClearAll = async () => {
+    if (window.confirm('Are you sure you want to clear ALL selections for this week?')) {
+      try {
+        const batch = writeBatch(db);
+        selections.forEach(sel => {
+          batch.delete(doc(db, 'carpoolSelections', sel.id));
+        });
+        await batch.commit();
+      } catch (error) {
+        console.error('Error clearing selections:', error);
+        alert('Failed to clear selections. Please try again.');
+      }
+    }
+  };
+
+  const toggleHoliday = async (day) => {
+    const existingHoliday = holidays.find(h => h.day === day);
+    
+    try {
+      if (existingHoliday) {
+        await deleteDoc(doc(db, 'schoolHolidays', existingHoliday.id));
+      } else {
+        await addDoc(collection(db, 'schoolHolidays'), {
+          day: day,
+          timestamp: new Date()
+        });
+      }
+    } catch (error) {
+      console.error('Error toggling holiday:', error);
+      alert('Failed to update holiday. Please try again.');
+    }
+  };
+
+  const isHoliday = (day) => holidays.some(h => h.day === day);
+
   const generateSchedule = () => {
     const schedule = {};
     days.forEach(day => {
-      schedule[day] = { dropOff: '', pickUp: '' };
+      schedule[day] = { dropOff: '', pickUp: '', isHoliday: isHoliday(day) };
     });
 
     selections.forEach(selection => {
@@ -90,7 +156,7 @@ export default function CarpoolScheduler() {
   };
 
   const schedule = generateSchedule();
-  const mySelections = selections.filter(sel => sel.parent === parentName.trim());
+  const mySelections = selections.filter(sel => sel.parent === selectedParent);
 
   if (loading) {
     return (
@@ -106,47 +172,62 @@ export default function CarpoolScheduler() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
       <div className="max-w-4xl mx-auto">
-        {/* Section 1: Parent Name */}
+        {/* Section 1: Select Parent */}
         <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
           <div className="flex items-center gap-2 mb-4">
             <User className="text-indigo-600" size={28} />
             <h1 className="text-2xl font-bold text-gray-800">Weekly Carpool Schedule</h1>
           </div>
           
-          <h2 className="text-lg font-semibold text-gray-700 mb-3">Section 1: Your Name</h2>
-          <input
-            type="text"
-            placeholder="Enter your first name"
-            value={parentName}
-            onChange={(e) => setParentName(e.target.value)}
-            className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none text-lg"
-          />
+          <h2 className="text-lg font-semibold text-gray-700 mb-3">Section 1: Select Your Name</h2>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            {PARENT_NAMES.map((name) => (
+              <button
+                key={name}
+                onClick={() => setSelectedParent(name)}
+                className={`px-4 py-3 rounded-lg font-medium transition-all ${
+                  selectedParent === name
+                    ? 'bg-indigo-600 text-white shadow-lg scale-105'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+              >
+                {name}
+              </button>
+            ))}
+          </div>
         </div>
 
-        {/* Section 2: Pick Slots */}
+        {/* Section 2: Pick Multiple Days & Slots */}
         <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
-          <h2 className="text-lg font-semibold text-gray-700 mb-4">Section 2: Pick Your Slots</h2>
+          <h2 className="text-lg font-semibold text-gray-700 mb-4">Section 2: Pick Your Days & Slots</h2>
           
-          {!parentName.trim() && (
+          {!selectedParent && (
             <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4">
-              <p className="text-yellow-800 text-sm">Please enter your name first</p>
+              <p className="text-yellow-800 text-sm">Please select your name first</p>
             </div>
           )}
 
           <div className="space-y-4 mb-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Day</label>
-              <select
-                value={currentDay}
-                onChange={(e) => setCurrentDay(e.target.value)}
-                disabled={!parentName.trim()}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none bg-white disabled:bg-gray-100 disabled:cursor-not-allowed"
-              >
-                <option value="">Select day</option>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Select Days (multiple)</label>
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
                 {days.map(day => (
-                  <option key={day} value={day}>{day}</option>
+                  <button
+                    key={day}
+                    onClick={() => toggleDay(day)}
+                    disabled={!selectedParent || isHoliday(day)}
+                    className={`px-3 py-2 rounded-lg font-medium transition-all ${
+                      selectedDays.includes(day)
+                        ? 'bg-indigo-600 text-white'
+                        : isHoliday(day)
+                        ? 'bg-red-100 text-red-400 cursor-not-allowed'
+                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    } disabled:cursor-not-allowed`}
+                  >
+                    {day}
+                  </button>
                 ))}
-              </select>
+              </div>
             </div>
 
             <div>
@@ -155,9 +236,9 @@ export default function CarpoolScheduler() {
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input
                     type="checkbox"
-                    checked={currentSlots.dropOff}
-                    onChange={(e) => setCurrentSlots({...currentSlots, dropOff: e.target.checked})}
-                    disabled={!parentName.trim()}
+                    checked={dropOff}
+                    onChange={(e) => setDropOff(e.target.checked)}
+                    disabled={!selectedParent}
                     className="w-5 h-5 text-indigo-600 rounded focus:ring-indigo-500 disabled:cursor-not-allowed"
                   />
                   <span className="text-gray-700 font-medium">Drop Off</span>
@@ -165,9 +246,9 @@ export default function CarpoolScheduler() {
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input
                     type="checkbox"
-                    checked={currentSlots.pickUp}
-                    onChange={(e) => setCurrentSlots({...currentSlots, pickUp: e.target.checked})}
-                    disabled={!parentName.trim()}
+                    checked={pickUp}
+                    onChange={(e) => setPickUp(e.target.checked)}
+                    disabled={!selectedParent}
                     className="w-5 h-5 text-indigo-600 rounded focus:ring-indigo-500 disabled:cursor-not-allowed"
                   />
                   <span className="text-gray-700 font-medium">Pick Up</span>
@@ -176,18 +257,18 @@ export default function CarpoolScheduler() {
             </div>
 
             <button
-              onClick={handleAddSelection}
-              disabled={!parentName.trim() || !currentDay || (!currentSlots.dropOff && !currentSlots.pickUp)}
+              onClick={handleAddSelections}
+              disabled={!selectedParent || selectedDays.length === 0 || (!dropOff && !pickUp)}
               className="w-full bg-indigo-600 text-white py-3 px-4 rounded-lg hover:bg-indigo-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2 font-medium"
             >
               <Plus size={20} />
-              Add to Schedule
+              Add to Schedule ({selectedDays.length} {selectedDays.length === 1 ? 'day' : 'days'})
             </button>
           </div>
 
           {mySelections.length > 0 && (
             <div className="mt-6">
-              <h3 className="text-sm font-semibold text-gray-700 mb-3">Your Selections:</h3>
+              <h3 className="text-sm font-semibold text-gray-700 mb-3">Your Current Selections:</h3>
               <div className="space-y-2">
                 {mySelections.map((sel) => (
                   <div key={sel.id} className="flex items-center justify-between bg-indigo-50 p-3 rounded-lg border border-indigo-100">
@@ -207,11 +288,42 @@ export default function CarpoolScheduler() {
           )}
         </div>
 
+        {/* Holiday Management */}
+        <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
+          <h2 className="text-lg font-semibold text-gray-700 mb-4">Mark School Holidays</h2>
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+            {days.map(day => (
+              <button
+                key={day}
+                onClick={() => toggleHoliday(day)}
+                className={`px-3 py-2 rounded-lg font-medium transition-all ${
+                  isHoliday(day)
+                    ? 'bg-red-500 text-white'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+              >
+                {isHoliday(day) && '🏖️ '}{day}
+              </button>
+            ))}
+          </div>
+        </div>
+
         {/* Section 3: Generated Schedule */}
         <div className="bg-white rounded-lg shadow-lg p-6">
-          <div className="flex items-center gap-2 mb-4">
-            <Calendar className="text-indigo-600" size={24} />
-            <h2 className="text-lg font-semibold text-gray-700">Section 3: Weekly Schedule (All Parents)</h2>
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <Calendar className="text-indigo-600" size={24} />
+              <h2 className="text-lg font-semibold text-gray-700">Section 3: Weekly Schedule (All Parents)</h2>
+            </div>
+            {selections.length > 0 && (
+              <button
+                onClick={handleClearAll}
+                className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-sm font-medium"
+              >
+                <Trash2 size={16} />
+                Clear All
+              </button>
+            )}
           </div>
           
           <div className="overflow-x-auto">
@@ -226,9 +338,14 @@ export default function CarpoolScheduler() {
               <tbody>
                 {days.map((day, index) => (
                   <tr key={day} className={index % 2 === 0 ? 'bg-gray-50' : 'bg-white'}>
-                    <td className="px-4 py-3 font-medium text-gray-700">{day}</td>
+                    <td className="px-4 py-3 font-medium text-gray-700">
+                      {schedule[day].isHoliday && '🏖️ '}{day}
+                      {schedule[day].isHoliday && <span className="ml-2 text-xs text-red-600 font-semibold">HOLIDAY</span>}
+                    </td>
                     <td className="px-4 py-3">
-                      {schedule[day].dropOff ? (
+                      {schedule[day].isHoliday ? (
+                        <span className="text-red-500 text-sm">School Off</span>
+                      ) : schedule[day].dropOff ? (
                         <span className="inline-flex items-center gap-1 text-green-700 font-medium">
                           <CheckCircle size={16} />
                           {schedule[day].dropOff}
@@ -238,7 +355,9 @@ export default function CarpoolScheduler() {
                       )}
                     </td>
                     <td className="px-4 py-3">
-                      {schedule[day].pickUp ? (
+                      {schedule[day].isHoliday ? (
+                        <span className="text-red-500 text-sm">School Off</span>
+                      ) : schedule[day].pickUp ? (
                         <span className="inline-flex items-center gap-1 text-green-700 font-medium">
                           <CheckCircle size={16} />
                           {schedule[day].pickUp}
