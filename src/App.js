@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { User, Calendar, CheckCircle, Plus, Loader, Trash2, Edit2, X } from 'lucide-react';
+import { User, Calendar, CheckCircle, Plus, Loader, Trash2 } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
-import { getFirestore, collection, addDoc, onSnapshot, deleteDoc, doc, query, orderBy, updateDoc, writeBatch } from 'firebase/firestore';
+import { getFirestore, collection, addDoc, onSnapshot, deleteDoc, doc, query, orderBy, writeBatch } from 'firebase/firestore';
 
 // Firebase config using environment variables
 const firebaseConfig = {
@@ -24,10 +24,8 @@ export default function CarpoolScheduler() {
   const [selections, setSelections] = useState([]);
   const [holidays, setHolidays] = useState([]);
   const [selectedDays, setSelectedDays] = useState([]);
-  const [dropOff, setDropOff] = useState(false);
-  const [pickUp, setPickUp] = useState(false);
+  const [daySlots, setDaySlots] = useState({});
   const [loading, setLoading] = useState(true);
-  const [editingId, setEditingId] = useState(null);
 
   const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 
@@ -60,32 +58,55 @@ export default function CarpoolScheduler() {
   }, []);
 
   const toggleDay = (day) => {
-    setSelectedDays(prev => 
-      prev.includes(day) ? prev.filter(d => d !== day) : [...prev, day]
-    );
+    if (selectedDays.includes(day)) {
+      // Remove day
+      setSelectedDays(prev => prev.filter(d => d !== day));
+      const newSlots = { ...daySlots };
+      delete newSlots[day];
+      setDaySlots(newSlots);
+    } else {
+      // Add day
+      setSelectedDays(prev => [...prev, day]);
+      setDaySlots(prev => ({
+        ...prev,
+        [day]: { dropOff: false, pickUp: false }
+      }));
+    }
+  };
+
+  const updateDaySlot = (day, slot, value) => {
+    setDaySlots(prev => ({
+      ...prev,
+      [day]: {
+        ...prev[day],
+        [slot]: value
+      }
+    }));
   };
 
   const handleAddSelections = async () => {
-    if (selectedParent && selectedDays.length > 0 && (dropOff || pickUp)) {
+    if (selectedParent && selectedDays.length > 0) {
       try {
         const batch = writeBatch(db);
         
         selectedDays.forEach(day => {
-          const docRef = doc(collection(db, 'carpoolSelections'));
-          batch.set(docRef, {
-            parent: selectedParent,
-            day: day,
-            dropOff: dropOff,
-            pickUp: pickUp,
-            timestamp: new Date()
-          });
+          const slots = daySlots[day];
+          if (slots && (slots.dropOff || slots.pickUp)) {
+            const docRef = doc(collection(db, 'carpoolSelections'));
+            batch.set(docRef, {
+              parent: selectedParent,
+              day: day,
+              dropOff: slots.dropOff,
+              pickUp: slots.pickUp,
+              timestamp: new Date()
+            });
+          }
         });
         
         await batch.commit();
         
         setSelectedDays([]);
-        setDropOff(false);
-        setPickUp(false);
+        setDaySlots({});
       } catch (error) {
         console.error('Error adding selections:', error);
         alert('Failed to add selections. Please try again.');
@@ -158,6 +179,11 @@ export default function CarpoolScheduler() {
   const schedule = generateSchedule();
   const mySelections = selections.filter(sel => sel.parent === selectedParent);
 
+  const hasAnySlotSelected = selectedDays.some(day => {
+    const slots = daySlots[day];
+    return slots && (slots.dropOff || slots.pickUp);
+  });
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
@@ -197,7 +223,7 @@ export default function CarpoolScheduler() {
           </div>
         </div>
 
-        {/* Section 2: Pick Multiple Days & Slots */}
+        {/* Section 2: Pick Multiple Days & Individual Slots */}
         <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
           <h2 className="text-lg font-semibold text-gray-700 mb-4">Section 2: Pick Your Days & Slots</h2>
           
@@ -209,7 +235,7 @@ export default function CarpoolScheduler() {
 
           <div className="space-y-4 mb-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Select Days (multiple)</label>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Select Days</label>
               <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
                 {days.map(day => (
                   <button
@@ -230,39 +256,44 @@ export default function CarpoolScheduler() {
               </div>
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Slots</label>
-              <div className="flex gap-4">
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={dropOff}
-                    onChange={(e) => setDropOff(e.target.checked)}
-                    disabled={!selectedParent}
-                    className="w-5 h-5 text-indigo-600 rounded focus:ring-indigo-500 disabled:cursor-not-allowed"
-                  />
-                  <span className="text-gray-700 font-medium">Drop Off</span>
-                </label>
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={pickUp}
-                    onChange={(e) => setPickUp(e.target.checked)}
-                    disabled={!selectedParent}
-                    className="w-5 h-5 text-indigo-600 rounded focus:ring-indigo-500 disabled:cursor-not-allowed"
-                  />
-                  <span className="text-gray-700 font-medium">Pick Up</span>
-                </label>
+            {selectedDays.length > 0 && (
+              <div className="space-y-3 mt-4">
+                <label className="block text-sm font-medium text-gray-700">Pick slots for each day:</label>
+                {selectedDays.map(day => (
+                  <div key={day} className="bg-indigo-50 p-4 rounded-lg border border-indigo-200">
+                    <div className="font-semibold text-gray-800 mb-2">{day}</div>
+                    <div className="flex gap-4">
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={daySlots[day]?.dropOff || false}
+                          onChange={(e) => updateDaySlot(day, 'dropOff', e.target.checked)}
+                          className="w-5 h-5 text-indigo-600 rounded focus:ring-indigo-500"
+                        />
+                        <span className="text-gray-700 font-medium">Drop Off</span>
+                      </label>
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={daySlots[day]?.pickUp || false}
+                          onChange={(e) => updateDaySlot(day, 'pickUp', e.target.checked)}
+                          className="w-5 h-5 text-indigo-600 rounded focus:ring-indigo-500"
+                        />
+                        <span className="text-gray-700 font-medium">Pick Up</span>
+                      </label>
+                    </div>
+                  </div>
+                ))}
               </div>
-            </div>
+            )}
 
             <button
               onClick={handleAddSelections}
-              disabled={!selectedParent || selectedDays.length === 0 || (!dropOff && !pickUp)}
+              disabled={!selectedParent || selectedDays.length === 0 || !hasAnySlotSelected}
               className="w-full bg-indigo-600 text-white py-3 px-4 rounded-lg hover:bg-indigo-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2 font-medium"
             >
               <Plus size={20} />
-              Add to Schedule ({selectedDays.length} {selectedDays.length === 1 ? 'day' : 'days'})
+              Add to Schedule
             </button>
           </div>
 
@@ -315,7 +346,7 @@ export default function CarpoolScheduler() {
               <Calendar className="text-indigo-600" size={24} />
               <h2 className="text-lg font-semibold text-gray-700">Section 3: Weekly Schedule (All Parents)</h2>
             </div>
-            {selections.length > 0 && (
+            {selectedParent === 'Claudia & JH' && selections.length > 0 && (
               <button
                 onClick={handleClearAll}
                 className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-sm font-medium"
