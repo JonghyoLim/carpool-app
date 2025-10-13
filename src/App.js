@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { User, Calendar, CheckCircle, Plus, Loader, Trash2, Bell, X } from 'lucide-react';
+import { User, Calendar, CheckCircle, Plus, Loader, Trash2, Bell, X, AlertCircle, Check, Info } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { getFirestore, collection, addDoc, onSnapshot, deleteDoc, doc, query, orderBy, writeBatch } from 'firebase/firestore';
 
@@ -17,10 +17,8 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
-// Update with your 5 parent names
 const PARENT_NAMES = ['Claudia', 'Iwona', 'Patricja', 'Łukasz', 'Jonghyo'];
 
-// Color mapping for each parent
 const PARENT_COLORS = {
   'Claudia': { bg: 'bg-orange-100', text: 'text-orange-700', border: 'border-orange-300' },
   'Iwona': { bg: 'bg-pink-100', text: 'text-pink-700', border: 'border-pink-300' },
@@ -29,6 +27,94 @@ const PARENT_COLORS = {
   'Jonghyo': { bg: 'bg-green-100', text: 'text-green-700', border: 'border-green-300' }
 };
 
+// Toast Notification Component
+function Toast({ message, type = 'success', onClose }) {
+  useEffect(() => {
+    const timer = setTimeout(onClose, 4000);
+    return () => clearTimeout(timer);
+  }, [onClose]);
+
+  const styles = {
+    success: {
+      bg: 'bg-green-50',
+      border: 'border-green-500',
+      text: 'text-green-800',
+      icon: <Check size={20} className="text-green-500" />
+    },
+    error: {
+      bg: 'bg-red-50',
+      border: 'border-red-500',
+      text: 'text-red-800',
+      icon: <AlertCircle size={20} className="text-red-500" />
+    },
+    info: {
+      bg: 'bg-blue-50',
+      border: 'border-blue-500',
+      text: 'text-blue-800',
+      icon: <Info size={20} className="text-blue-500" />
+    }
+  };
+
+  const style = styles[type] || styles.success;
+
+  return (
+    <div className={`${style.bg} ${style.text} border-l-4 ${style.border} p-4 rounded-lg shadow-lg flex items-start gap-3 min-w-[300px] max-w-md animate-slide-in`}>
+      {style.icon}
+      <p className="flex-1 font-medium">{message}</p>
+      <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+        <X size={18} />
+      </button>
+    </div>
+  );
+}
+
+// Confirmation Dialog Component
+function ConfirmDialog({ message, onConfirm, onCancel, type = 'danger' }) {
+  const typeStyles = {
+    danger: {
+      bg: 'bg-red-100',
+      icon: 'text-red-600',
+      button: 'bg-red-600 hover:bg-red-700'
+    },
+    warning: {
+      bg: 'bg-orange-100',
+      icon: 'text-orange-600',
+      button: 'bg-orange-600 hover:bg-orange-700'
+    }
+  };
+
+  const styles = typeStyles[type] || typeStyles.danger;
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+      <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6 animate-scale-in">
+        <div className="flex items-center gap-3 mb-4">
+          <div className={`p-2 rounded-full ${styles.bg}`}>
+            <AlertCircle className={styles.icon} size={24} />
+          </div>
+          <h3 className="text-xl font-bold text-gray-800">Confirm Action</h3>
+        </div>
+        
+        <p className="text-gray-700 mb-6 whitespace-pre-line">{message}</p>
+
+        <div className="flex gap-3">
+          <button
+            onClick={onCancel}
+            className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors font-medium"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            className={`flex-1 px-4 py-2 rounded-lg transition-colors font-medium text-white ${styles.button}`}
+          >
+            {type === 'warning' ? 'Take Over' : 'Confirm'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function CarpoolScheduler() {
   const [selectedParent, setSelectedParent] = useState('');
@@ -40,8 +126,39 @@ export default function CarpoolScheduler() {
   const [showConfirmation, setShowConfirmation] = useState(false);
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
   const [previousSelectionsCount, setPreviousSelectionsCount] = useState(0);
+  const [toasts, setToasts] = useState([]);
+  const [confirmDialog, setConfirmDialog] = useState(null);
 
   const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+
+  // Toast management
+  const addToast = (message, type = 'success') => {
+    const id = Date.now();
+    setToasts(prev => [...prev, { id, message, type }]);
+  };
+
+  const removeToast = (id) => {
+    setToasts(prev => prev.filter(toast => toast.id !== id));
+  };
+
+  // Confirmation dialog management
+  const showConfirmDialog = (message, onConfirm, type = 'danger') => {
+    return new Promise((resolve) => {
+      setConfirmDialog({
+        message,
+        onConfirm: () => {
+          onConfirm();
+          setConfirmDialog(null);
+          resolve(true);
+        },
+        onCancel: () => {
+          setConfirmDialog(null);
+          resolve(false);
+        },
+        type
+      });
+    });
+  };
 
   // Request notification permission
   const requestNotificationPermission = async () => {
@@ -50,7 +167,10 @@ export default function CarpoolScheduler() {
       if (permission === 'granted') {
         setNotificationsEnabled(true);
         showNotification('Notifications Enabled! 🔔', 'You will now receive schedule updates');
+        addToast('Notifications enabled successfully!', 'success');
         localStorage.setItem('notificationsEnabled', 'true');
+      } else {
+        addToast('Notifications permission denied', 'error');
       }
     }
   };
@@ -67,7 +187,6 @@ export default function CarpoolScheduler() {
     }
   };
 
-  // Check if notifications are already enabled
   useEffect(() => {
     if ('Notification' in window && Notification.permission === 'granted') {
       setNotificationsEnabled(true);
@@ -78,7 +197,6 @@ export default function CarpoolScheduler() {
     }
   }, []);
 
-  // Listen to real-time updates from Firebase
   useEffect(() => {
     const selectionsQuery = query(collection(db, 'carpoolSelections'), orderBy('timestamp', 'desc'));
     const holidaysQuery = query(collection(db, 'schoolHolidays'));
@@ -89,10 +207,8 @@ export default function CarpoolScheduler() {
         ...doc.data()
       }));
       
-      // Detect changes and send notifications
       if (!loading && data.length !== previousSelectionsCount) {
         if (data.length > previousSelectionsCount) {
-          // Someone added a slot
           const latestSelection = data[0];
           if (latestSelection && latestSelection.parent !== selectedParent) {
             const slots = [];
@@ -104,7 +220,6 @@ export default function CarpoolScheduler() {
             );
           }
         } else if (data.length < previousSelectionsCount) {
-          // Someone removed a slot
           showNotification(
             '🗑️ Schedule Updated',
             'A carpool slot was removed'
@@ -163,61 +278,126 @@ export default function CarpoolScheduler() {
   const handleConfirmAddSelections = async () => {
     if (selectedParent && selectedDays.length > 0) {
       try {
-        const batch = writeBatch(db);
-        
+        // Check for conflicts
+        const conflicts = [];
         selectedDays.forEach(day => {
           const slots = daySlots[day];
-          if (slots && (slots.dropOff || slots.pickUp)) {
-            const docRef = doc(collection(db, 'carpoolSelections'));
-            batch.set(docRef, {
-              parent: selectedParent,
-              day: day,
-              dropOff: slots.dropOff,
-              pickUp: slots.pickUp,
-              timestamp: new Date()
+          if (slots) {
+            if (slots.dropOff && schedule[day].dropOff && schedule[day].dropOff !== selectedParent) {
+              conflicts.push(`${day} Drop Off (currently assigned to ${schedule[day].dropOff})`);
+            }
+            if (slots.pickUp && schedule[day].pickUp && schedule[day].pickUp !== selectedParent) {
+              conflicts.push(`${day} Pick Up (currently assigned to ${schedule[day].pickUp})`);
+            }
+          }
+        });
+
+        // If there are conflicts, close the first modal and show conflict dialog
+        if (conflicts.length > 0) {
+          setShowConfirmation(false); // Close the first modal immediately
+          
+          // Small delay to ensure smooth transition
+          setTimeout(() => {
+            showConfirmDialog(
+              `The following slots are already taken:\n\n${conflicts.join('\n')}\n\nDo you want to take over these slots?`,
+              async () => {
+                await addSelectionsToFirebase(true);
+              },
+              'warning'
+            );
+          }, 100);
+          return;
+        }
+
+        // No conflicts, proceed normally
+        await addSelectionsToFirebase(false);
+      } catch (error) {
+        console.error('Error adding selections:', error);
+        addToast('Failed to add selections. Please try again.', 'error');
+      }
+    }
+  };
+
+  const addSelectionsToFirebase = async (removeConflicts) => {
+    try {
+      const batch = writeBatch(db);
+      
+      // If removing conflicts, delete existing assignments for these slots
+      if (removeConflicts) {
+        selectedDays.forEach(day => {
+          const slots = daySlots[day];
+          if (slots) {
+            // Find and remove conflicting selections
+            selections.forEach(sel => {
+              if (sel.day === day) {
+                if ((slots.dropOff && sel.dropOff && sel.parent !== selectedParent) ||
+                    (slots.pickUp && sel.pickUp && sel.parent !== selectedParent)) {
+                  batch.delete(doc(db, 'carpoolSelections', sel.id));
+                }
+              }
             });
           }
         });
-        
-        await batch.commit();
-        
-        setSelectedDays([]);
-        setDaySlots({});
-        setShowConfirmation(false);
-        
-        // Show success notification
-        showNotification('✅ Added to Schedule!', 'Your carpool slots have been saved');
-      } catch (error) {
-        console.error('Error adding selections:', error);
-        alert('Failed to add selections. Please try again.');
       }
+      
+      // Add new selections
+      selectedDays.forEach(day => {
+        const slots = daySlots[day];
+        if (slots && (slots.dropOff || slots.pickUp)) {
+          const docRef = doc(collection(db, 'carpoolSelections'));
+          batch.set(docRef, {
+            parent: selectedParent,
+            day: day,
+            dropOff: slots.dropOff,
+            pickUp: slots.pickUp,
+            timestamp: new Date()
+          });
+        }
+      });
+      
+      await batch.commit();
+      
+      setSelectedDays([]);
+      setDaySlots({});
+      setShowConfirmation(false);
+      
+      addToast('✅ Your carpool slots have been added to the schedule!', 'success');
+      showNotification('✅ Added to Schedule!', 'Your carpool slots have been saved');
+    } catch (error) {
+      console.error('Error in addSelectionsToFirebase:', error);
+      addToast('Failed to add selections. Please try again.', 'error');
     }
   };
 
   const handleRemoveSelection = async (id) => {
     try {
       await deleteDoc(doc(db, 'carpoolSelections', id));
+      addToast('🗑️ Carpool slot removed successfully', 'success');
       showNotification('🗑️ Removed', 'Your carpool slot has been removed');
     } catch (error) {
       console.error('Error removing selection:', error);
-      alert('Failed to remove selection. Please try again.');
+      addToast('Failed to remove selection. Please try again.', 'error');
     }
   };
 
   const handleClearAll = async () => {
-    if (window.confirm('Are you sure you want to clear ALL selections for this week?')) {
-      try {
-        const batch = writeBatch(db);
-        selections.forEach(sel => {
-          batch.delete(doc(db, 'carpoolSelections', sel.id));
-        });
-        await batch.commit();
-        showNotification('🗑️ All Cleared', 'All carpool selections have been cleared');
-      } catch (error) {
-        console.error('Error clearing selections:', error);
-        alert('Failed to clear selections. Please try again.');
+    showConfirmDialog(
+      'Are you sure you want to clear ALL selections for this week? This action cannot be undone.',
+      async () => {
+        try {
+          const batch = writeBatch(db);
+          selections.forEach(sel => {
+            batch.delete(doc(db, 'carpoolSelections', sel.id));
+          });
+          await batch.commit();
+          addToast('🗑️ All selections cleared successfully', 'success');
+          showNotification('🗑️ All Cleared', 'All carpool selections have been cleared');
+        } catch (error) {
+          console.error('Error clearing selections:', error);
+          addToast('Failed to clear selections. Please try again.', 'error');
+        }
       }
-    }
+    );
   };
 
   const toggleHoliday = async (day) => {
@@ -226,17 +406,19 @@ export default function CarpoolScheduler() {
     try {
       if (existingHoliday) {
         await deleteDoc(doc(db, 'schoolHolidays', existingHoliday.id));
+        addToast(`📅 ${day} is no longer marked as a holiday`, 'info');
         showNotification('📅 Holiday Removed', `${day} is no longer a holiday`);
       } else {
         await addDoc(collection(db, 'schoolHolidays'), {
           day: day,
           timestamp: new Date()
         });
+        addToast(`🏖️ ${day} marked as a school holiday`, 'info');
         showNotification('🏖️ Holiday Added', `${day} is now marked as a holiday`);
       }
     } catch (error) {
       console.error('Error toggling holiday:', error);
-      alert('Failed to update holiday. Please try again.');
+      addToast('Failed to update holiday. Please try again.', 'error');
     }
   };
 
@@ -295,6 +477,28 @@ export default function CarpoolScheduler() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
+      {/* Toast Container */}
+      <div className="fixed top-4 right-4 z-50 space-y-2">
+        {toasts.map(toast => (
+          <Toast
+            key={toast.id}
+            message={toast.message}
+            type={toast.type}
+            onClose={() => removeToast(toast.id)}
+          />
+        ))}
+      </div>
+
+      {/* Confirmation Dialog */}
+      {confirmDialog && (
+        <ConfirmDialog
+          message={confirmDialog.message}
+          onConfirm={confirmDialog.onConfirm}
+          onCancel={confirmDialog.onCancel}
+          type={confirmDialog.type}
+        />
+      )}
+
       <div className="max-w-4xl mx-auto">
         {/* Notification Banner */}
         {!notificationsEnabled && 'Notification' in window && (
@@ -531,7 +735,7 @@ export default function CarpoolScheduler() {
       {/* Confirmation Modal */}
       {showConfirmation && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6 animate-scale-in">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-xl font-bold text-gray-800">Confirm Your Selection</h3>
               <button
@@ -571,6 +775,38 @@ export default function CarpoolScheduler() {
           </div>
         </div>
       )}
+
+      <style jsx>{`
+        @keyframes slide-in {
+          from {
+            transform: translateX(100%);
+            opacity: 0;
+          }
+          to {
+            transform: translateX(0);
+            opacity: 1;
+          }
+        }
+        
+        @keyframes scale-in {
+          from {
+            transform: scale(0.9);
+            opacity: 0;
+          }
+          to {
+            transform: scale(1);
+            opacity: 1;
+          }
+        }
+        
+        .animate-slide-in {
+          animation: slide-in 0.3s ease-out;
+        }
+        
+        .animate-scale-in {
+          animation: scale-in 0.2s ease-out;
+        }
+      `}</style>
     </div>
   );
 }
