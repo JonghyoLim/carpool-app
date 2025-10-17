@@ -130,6 +130,15 @@ export default function CarpoolScheduler() {
   const [confirmDialog, setConfirmDialog] = useState(null);
 
   const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+  
+  // Day abbreviations for display
+  const dayAbbrev = {
+    'Monday': 'Mon',
+    'Tuesday': 'Tue',
+    'Wednesday': 'Wed',
+    'Thursday': 'Thu',
+    'Friday': 'Fri'
+  };
 
   // Toast management
   const addToast = (message, type = 'success') => {
@@ -319,6 +328,8 @@ export default function CarpoolScheduler() {
   };
 
   const addSelectionsToFirebase = async (removeConflicts) => {
+    let operationSuccessful = false;
+    
     try {
       const batch = writeBatch(db);
       
@@ -355,17 +366,26 @@ export default function CarpoolScheduler() {
         }
       });
       
+      // Commit the batch
       await batch.commit();
+      operationSuccessful = true;
       
+      // Clear selections
       setSelectedDays([]);
       setDaySlots({});
       setShowConfirmation(false);
       
+      // Show success messages
       addToast('✅ Your carpool slots have been added to the schedule!', 'success');
       showNotification('✅ Added to Schedule!', 'Your carpool slots have been saved');
+      
     } catch (error) {
       console.error('Error in addSelectionsToFirebase:', error);
-      addToast('Failed to add selections. Please try again.', 'error');
+      
+      // Only show error if operation actually failed
+      if (!operationSuccessful) {
+        addToast('Failed to add selections. Please try again.', 'error');
+      }
     }
   };
 
@@ -697,7 +717,7 @@ export default function CarpoolScheduler() {
                 {days.map((day, index) => (
                   <tr key={day} className={index % 2 === 0 ? 'bg-gray-50' : 'bg-white'}>
                     <td className="px-4 py-3 font-medium text-gray-700">
-                      {schedule[day].isHoliday && '🏖️ '}{day}
+                      {schedule[day].isHoliday && '🏖️ '}{dayAbbrev[day]}
                       {schedule[day].isHoliday && <span className="ml-2 text-xs text-red-600 font-semibold">HOLIDAY</span>}
                     </td>
                     <td className="px-4 py-3">
