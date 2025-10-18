@@ -568,14 +568,14 @@ export default function CarpoolScheduler() {
           </div>
         )}
 
-        {/* Section 1: Select Parent */}
+        {/* Select Parent */}
         <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
           <div className="flex items-center gap-2 mb-4">
             <User className="text-indigo-600" size={28} />
             <h1 className="text-2xl font-bold text-gray-800">Weekly Carpool Schedule</h1>
           </div>
           
-          <h2 className="text-lg font-semibold text-gray-700 mb-3">Section 1: Select Your Name</h2>
+          <h2 className="text-lg font-semibold text-gray-700 mb-3">Select Your Name</h2>
           <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
             {PARENT_NAMES.map((name) => {
               const colors = PARENT_COLORS[name];
@@ -596,9 +596,9 @@ export default function CarpoolScheduler() {
           </div>
         </div>
 
-        {/* Section 2: Pick Multiple Days & Individual Slots */}
+        {/* Pick Multiple Days & Individual Slots */}
         <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
-          <h2 className="text-lg font-semibold text-gray-700 mb-4">Section 2: Pick Your Days & Slots</h2>
+          <h2 className="text-lg font-semibold text-gray-700 mb-4">Pick Your Days & Slots</h2>
           
           {!selectedParent && (
             <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4">
@@ -717,12 +717,12 @@ export default function CarpoolScheduler() {
           </div>
         )}
 
-        {/* Section 3: Generated Schedule */}
+        {/*  Generated Schedule */}
         <div className="bg-white rounded-lg shadow-lg p-6">
           <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
             <div className="flex items-center gap-2">
               <Calendar className="text-indigo-600" size={24} />
-              <h2 className="text-lg font-semibold text-gray-700">Section 3: Weekly Schedule (All Parents)</h2>
+              <h2 className="text-lg font-semibold text-gray-700">Weekly Schedule (All Parents)</h2>
             </div>
             {(selectedParent === 'Jonghyo' || selectedParent === 'Claudia') && selections.length > 0 && (
               <button
