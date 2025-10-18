@@ -286,6 +286,8 @@ export default function CarpoolScheduler() {
 
   const handleConfirmAddSelections = async () => {
     if (selectedParent && selectedDays.length > 0) {
+      let hasError = false;
+      
       try {
         // Check for conflicts
         const conflicts = [];
@@ -303,9 +305,8 @@ export default function CarpoolScheduler() {
 
         // If there are conflicts, close the first modal and show conflict dialog
         if (conflicts.length > 0) {
-          setShowConfirmation(false); // Close the first modal immediately
+          setShowConfirmation(false);
           
-          // Small delay to ensure smooth transition
           setTimeout(() => {
             showConfirmDialog(
               `The following slots are already taken:\n\n${conflicts.join('\n')}\n\nDo you want to take over these slots?`,
@@ -320,7 +321,9 @@ export default function CarpoolScheduler() {
 
         // No conflicts, proceed normally
         await addSelectionsToFirebase(false);
+        
       } catch (error) {
+        hasError = true;
         console.error('Error adding selections:', error);
         addToast('Failed to add selections. Please try again.', 'error');
       }
@@ -390,13 +393,21 @@ export default function CarpoolScheduler() {
   };
 
   const handleRemoveSelection = async (id) => {
+    let operationSuccessful = false;
+    
     try {
       await deleteDoc(doc(db, 'carpoolSelections', id));
+      operationSuccessful = true;
+      
       addToast('🗑️ Carpool slot removed successfully', 'success');
       showNotification('🗑️ Removed', 'Your carpool slot has been removed');
     } catch (error) {
       console.error('Error removing selection:', error);
-      addToast('Failed to remove selection. Please try again.', 'error');
+      
+      // Only show error if operation actually failed
+      if (!operationSuccessful) {
+        addToast('Failed to remove selection. Please try again.', 'error');
+      }
     }
   };
 
@@ -404,17 +415,26 @@ export default function CarpoolScheduler() {
     showConfirmDialog(
       'Are you sure you want to clear ALL selections for this week? This action cannot be undone.',
       async () => {
+        let operationSuccessful = false;
+        
         try {
           const batch = writeBatch(db);
           selections.forEach(sel => {
             batch.delete(doc(db, 'carpoolSelections', sel.id));
           });
+          
           await batch.commit();
+          operationSuccessful = true;
+          
           addToast('🗑️ All selections cleared successfully', 'success');
           showNotification('🗑️ All Cleared', 'All carpool selections have been cleared');
         } catch (error) {
           console.error('Error clearing selections:', error);
-          addToast('Failed to clear selections. Please try again.', 'error');
+          
+          // Only show error if operation actually failed
+          if (!operationSuccessful) {
+            addToast('Failed to clear selections. Please try again.', 'error');
+          }
         }
       }
     );
@@ -422,10 +442,13 @@ export default function CarpoolScheduler() {
 
   const toggleHoliday = async (day) => {
     const existingHoliday = holidays.find(h => h.day === day);
+    let operationSuccessful = false;
     
     try {
       if (existingHoliday) {
         await deleteDoc(doc(db, 'schoolHolidays', existingHoliday.id));
+        operationSuccessful = true;
+        
         addToast(`📅 ${day} is no longer marked as a holiday`, 'info');
         showNotification('📅 Holiday Removed', `${day} is no longer a holiday`);
       } else {
@@ -433,12 +456,18 @@ export default function CarpoolScheduler() {
           day: day,
           timestamp: new Date()
         });
+        operationSuccessful = true;
+        
         addToast(`🏖️ ${day} marked as a school holiday`, 'info');
         showNotification('🏖️ Holiday Added', `${day} is now marked as a holiday`);
       }
     } catch (error) {
       console.error('Error toggling holiday:', error);
-      addToast('Failed to update holiday. Please try again.', 'error');
+      
+      // Only show error if operation actually failed
+      if (!operationSuccessful) {
+        addToast('Failed to update holiday. Please try again.', 'error');
+      }
     }
   };
 
@@ -666,25 +695,27 @@ export default function CarpoolScheduler() {
           )}
         </div>
 
-        {/* Holiday Management */}
-        <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
-          <h2 className="text-lg font-semibold text-gray-700 mb-4">Mark School Holidays</h2>
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
-            {days.map(day => (
-              <button
-                key={day}
-                onClick={() => toggleHoliday(day)}
-                className={`px-3 py-2 rounded-lg font-medium transition-all ${
-                  isHoliday(day)
-                    ? 'bg-red-500 text-white'
-                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
-              >
-                {isHoliday(day) && '🏖️ '}{day}
-              </button>
-            ))}
+        {/* Holiday Management - Only visible for Jonghyo and Claudia */}
+        {(selectedParent === 'Jonghyo' || selectedParent === 'Claudia') && (
+          <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
+            <h2 className="text-lg font-semibold text-gray-700 mb-4">Mark School Holidays</h2>
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+              {days.map(day => (
+                <button
+                  key={day}
+                  onClick={() => toggleHoliday(day)}
+                  className={`px-3 py-2 rounded-lg font-medium transition-all ${
+                    isHoliday(day)
+                      ? 'bg-red-500 text-white'
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
+                >
+                  {isHoliday(day) && '🏖️ '}{day}
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Section 3: Generated Schedule */}
         <div className="bg-white rounded-lg shadow-lg p-6">
@@ -693,7 +724,7 @@ export default function CarpoolScheduler() {
               <Calendar className="text-indigo-600" size={24} />
               <h2 className="text-lg font-semibold text-gray-700">Section 3: Weekly Schedule (All Parents)</h2>
             </div>
-            {selectedParent === 'Jonghyo' && selections.length > 0 && (
+            {(selectedParent === 'Jonghyo' || selectedParent === 'Claudia') && selections.length > 0 && (
               <button
                 onClick={handleClearAll}
                 className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-sm font-medium"
