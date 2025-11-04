@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { User, Calendar, CheckCircle, Plus, Loader, Trash2, Bell, X, AlertCircle, Check, Info } from 'lucide-react';
+import { User, Calendar, CheckCircle, Plus, Loader, Trash2, Bell, X, AlertCircle, Check, Info, MessageCircle } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { getFirestore, collection, addDoc, onSnapshot, deleteDoc, doc, query, orderBy, writeBatch } from 'firebase/firestore';
 
@@ -491,6 +491,36 @@ export default function CarpoolScheduler() {
     return schedule;
   };
 
+  const formatScheduleForWhatsApp = () => {
+    const header = '*WEEKLY CARPOOL SCHEDULE*\n\n';
+
+    let message = '';
+    days.forEach(day => {
+      const daySchedule = schedule[day];
+
+      if (daySchedule.isHoliday) {
+        message += `*${day}*: HOLIDAY - School Off\n\n`;
+      } else {
+        message += `*${day}*\n`;
+        message += `  Drop Off: ${daySchedule.dropOff || 'Available'}\n`;
+        message += `  Pick Up: ${daySchedule.pickUp || 'Available'}\n\n`;
+      }
+    });
+
+    const footer = '---\nGenerated from MCC Carpool App';
+
+    return header + message + footer;
+  };
+
+  const shareToWhatsApp = () => {
+    const message = formatScheduleForWhatsApp();
+    const encodedMessage = encodeURIComponent(message);
+    const whatsappUrl = `https://wa.me/?text=${encodedMessage}`;
+
+    window.open(whatsappUrl, '_blank');
+    addToast('Opening WhatsApp...', 'success');
+  };
+
   const schedule = generateSchedule();
   const mySelections = selections.filter(sel => sel.parent === selectedParent);
 
@@ -724,15 +754,24 @@ export default function CarpoolScheduler() {
               <Calendar className="text-indigo-600" size={24} />
               <h2 className="text-lg font-semibold text-gray-700">Weekly Schedule (All Parents)</h2>
             </div>
-            {(selectedParent === 'Jonghyo' || selectedParent === 'Claudia') && selections.length > 0 && (
+            <div className="flex gap-2">
               <button
-                onClick={handleClearAll}
-                className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-sm font-medium"
+                onClick={shareToWhatsApp}
+                className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm font-medium"
               >
-                <Trash2 size={16} />
-                Clear All
+                <MessageCircle size={16} />
+                Share on WhatsApp
               </button>
-            )}
+              {(selectedParent === 'Jonghyo' || selectedParent === 'Claudia') && selections.length > 0 && (
+                <button
+                  onClick={handleClearAll}
+                  className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-sm font-medium"
+                >
+                  <Trash2 size={16} />
+                  Clear All
+                </button>
+              )}
+            </div>
           </div>
           
           <div className="overflow-x-auto">
